@@ -1,4 +1,12 @@
 (() => {
+  const locationToast = document.querySelector('#status');
+  if (locationToast) {
+    const clearLocationToast = () => {
+      if (locationToast.textContent === 'Your location is shown in blue.') locationToast.textContent = '';
+    };
+    new MutationObserver(clearLocationToast).observe(locationToast, { childList: true, characterData: true, subtree: true });
+    clearLocationToast();
+  }
   const WORKER = 'https://mapapp-offline-packs.rabbi-5fc.workers.dev';
   const MAPLIBRE_JS = 'https://unpkg.com/maplibre-gl@5.12.0/dist/maplibre-gl.js';
   const MAPLIBRE_CSS = 'https://unpkg.com/maplibre-gl@5.12.0/dist/maplibre-gl.css';
