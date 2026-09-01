@@ -1,0 +1,7 @@
+name = "mapapp-offline-packs"
+main = "src/index.js"
+compatibility_date = "2026-08-31"
+
+[[r2_buckets]]
+binding = "PACKS"
+bucket_name = "mapapp-offline-packs"
