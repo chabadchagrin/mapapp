@@ -1,5 +1,5 @@
-const SHELL_CACHE='map-app-shell-v4';
-const PARCEL_CACHE='map-app-parcels-v4';
+const SHELL_CACHE='map-app-shell-v5';
+const PARCEL_CACHE='map-app-parcels-v5';
 const CURRENT=[SHELL_CACHE,PARCEL_CACHE];
 const APP_SHELL=['./','./index.html','./parcel-data/index.json','./offline-controls.js','./manifest.json','./icon-192.png','./icon-512.png'];
 
