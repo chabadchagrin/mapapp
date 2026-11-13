@@ -39,6 +39,21 @@ Owner data refreshes itself on the 1st of every month via the GitHub Action `.gi
 - **Safety:** the run stops without publishing if a county or any area returns noticeably fewer parcels than last time.
 - After a refresh, phones see "New owner data is available" in the ☰ menu; tap Save all parcel data again to update the offline copy.
 
+## Status and open items (as of Nov 13, 2026)
+
+Done in the Nov 13 session: owner-name cleanup; monthly automatic refresh from both counties; owner-since / sale price; NEW OWNER badge and "Highlight recent sales"; "Gray out non-homes"; owner-type tags; likely owner behind LLCs; tax-bill address / owner-lives-here; simple passcode screen; nothing stored on the phone unless "Save all parcel data" is tapped; app updates take effect on the next open.
+
+Open items / ideas, roughly in the order discussed:
+
+1. **Real lock (deferred).** The passcode is only a curtain; the repo and data files are public. Plan agreed in principle: move code + refresh job to a private repo, have it publish only an encrypted bundle (app + data, encrypted with the passcode, AES via WebCrypto) to the public Pages repo, and start the public repo fresh so its history has no plain data. User would add the passcode as a GitHub Actions secret and create a token for cross-repo publishing.
+2. **Name glitches to fix in `tools/`:** tax-bill names already in "First Last" order are sometimes flipped (e.g. "Waxman David") — see `format_person()` in `refresh_data.py`; trustee couples written "(CO -TRS)" (space before the hyphen) get tagged Company — `owner_type()` should treat that as a trustee tag (extend `TAG_RE` in `clean_owner_names.py`).
+3. **Sorted-names import.** On Nov 13 the user exported all parcels (`owner-names.csv`: Name = likely owner or owner, ID, owner on record, type, has-home, address, area, county) to have another agent sort/score the names. IDs are `C-<parcel_id>` (Cuyahoga) and `G-<parcel_id>` (Geauga) and match `source_county` + `parcel_id` in the tiles. Next step when results come back: add the result as a field (and maybe a map highlight/filter), most simply by joining on ID inside `refresh_data.py` from a CSV kept in the repo, so it survives monthly refreshes.
+4. **Leftover Cloudflare project** "mapapp-offline-packs" (from the abandoned offline-map Worker) is still connected to this repo and shows a failing check on every commit. Harmless; disconnect or delete it in the Cloudflare dashboard (Workers & Pages → mapapp-offline-packs → Settings → Build).
+5. **Offline map (declined for now).** Idea: a small offline basemap of the 15 areas (OpenStreetMap roads + county or Microsoft building outlines + parcels, rendered with MapLibre) so the app can start with zero signal. Google Maps can't be cached. Check whether Cuyahoga/Geauga publish building-footprint layers first.
+6. **Smaller niceties offered:** title-case street addresses and cities on the card; Geauga LLC organizers from Ohio SOS monthly new-filing reports (only works for newly formed LLCs).
+
+How Claude worked on this repo: a GitHub connection with push access to `chabadchagrin/mapapp`; changes go to the `data-refresh` branch first (pushing there runs the refresh on that branch only), then `main` is fast-forwarded to it. GitHub Actions logs can't be read from Claude's workspace, so test jobs commit a report file back to the branch instead. App logic was checked with a jsdom harness that stubs Google Maps (Maps only loads on the real site).
+
 ## Files that matter
 
 - `index.html` — the entire app UI and map logic. All future edits should be made here.
