@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><title>Canvassing Map</title><meta name="theme-color" content="#0f766e"><link rel="manifest" href="manifest.json"><link rel="icon" href="icon-192.png"><link rel="apple-touch-icon" href="icon-192.png"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><style>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="robots" content="noindex,nofollow"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><title>Canvassing Map</title><meta name="theme-color" content="#0f766e"><link rel="manifest" href="manifest.json"><link rel="icon" href="icon-192.png"><link rel="apple-touch-icon" href="icon-192.png"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><style>
 html,body,#map{height:100%;margin:0;font-family:Arial}
 .top-bar{position:fixed;z-index:3;top:14px;left:14px;right:14px;display:flex;gap:8px;align-items:center}
 .search-bar{flex:1;min-width:0;display:flex;gap:6px;padding:7px;border-radius:14px;background:#fffe;box-shadow:0 4px 18px #1234}
@@ -23,7 +23,15 @@ html,body,#map{height:100%;margin:0;font-family:Arial}
 .menu-panel .toggle{background:#fff7ed;color:#9a3412;border:1px solid #fdba74}.menu-panel .toggle.on{background:#ea580c;color:#fff;border-color:#ea580c}.menu-panel a{color:#0f766e}.menu-panel hr{border:0;border-top:1px solid #e4e7eb;margin:12px 0}
 .menu-close{position:absolute;top:8px;right:10px;border:0;background:transparent;font-size:16px;color:#829ab1}
 @media(min-width:700px){.top-bar{left:24px;right:auto;width:430px}.suggestions{left:24px;right:auto;width:390px}.locate{right:24px}.menu-panel{right:auto;left:24px;top:68px}}
+.gate{position:fixed;inset:0;z-index:99;display:flex;align-items:center;justify-content:center;background:#0f766e}
+.gate[hidden]{display:none}
+.gate form{background:#fff;border-radius:16px;padding:22px;width:240px;text-align:center;box-shadow:0 8px 28px #0004}
+.gate input{width:100%;box-sizing:border-box;font-size:22px;letter-spacing:6px;text-align:center;padding:10px;border:1px solid #bcccdc;border-radius:10px;margin:12px 0 8px}
+.gate button{width:100%;border:0;border-radius:10px;padding:11px;background:#0f766e;color:#fff;font-weight:bold;font-size:15px}
+.gate p{margin:0;color:#486581;font-size:13px}.gate .err{color:#b42318;min-height:18px;margin-top:6px}
 </style></head><body>
+<div class="gate" id="gate" hidden><form id="gate-form"><p>Enter passcode</p><input id="gate-code" type="password" inputmode="numeric" autocomplete="current-password" aria-label="Passcode"><button type="submit">Open</button><p class="err" id="gate-err"></p></form></div>
+<script>(()=>{const H='07625cda1ed6dad6aa4cf70c899207812c2b8bc99e2f0774bc321e9b6573113c',K='mapapp-pass',g=document.getElementById('gate');let ok=false;try{ok=localStorage.getItem(K)===H}catch(_){}if(ok){g.remove();return}g.hidden=false;const sha=t=>crypto.subtle.digest('SHA-256',new TextEncoder().encode(t)).then(b=>[...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join(''));document.getElementById('gate-form').onsubmit=async e=>{e.preventDefault();const i=document.getElementById('gate-code');if(await sha(i.value.trim())===H){try{localStorage.setItem(K,H)}catch(_){}g.remove()}else{document.getElementById('gate-err').textContent='Wrong passcode';i.value='';i.focus()}};setTimeout(()=>{const i=document.getElementById('gate-code');if(i)i.focus()},50)})();</script>
 <div id="map"></div>
 <div class="top-bar">
   <form class="search-bar" id="search-form">
