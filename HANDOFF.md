@@ -48,7 +48,39 @@ Owner data refreshes itself on the 1st of every month via the GitHub Action `.gi
 
 ## Data coverage
 
-Parcel data includes selected Cuyahoga municipalities (including Chagrin Falls, Chagrin Falls Township, Moreland Hills, Hunting Valley, Bentleyville, and Pepper Pike) and selected Geauga areas (including Russell, South Russell, Bainbridge, Chester/Chesterland, and other nearby areas downloaded earlier). Locations outside these areas won't have a tappable parcel.
+Cuyahoga (6 areas, matched on the county's `parcel_city` field): Bentleyville, Chagrin Falls, Chagrin Falls Township, Hunting Valley, Moreland Hills, Pepper Pike.
+
+Geauga (9 areas, matched on the first two digits of the county's `TaxDist` field, which are also the first two digits of the parcel number): Auburn Twp (01), Bainbridge Twp (02, 03), Chardon Twp (06–09), City of Chardon (10), Chester Twp (11), Munson Twp (21, 22), Russell Twp (26, 28), Hunting Valley Village (27), South Russell Village (29).
+
+About 36,500 parcels total. Each parcel is written into every 0.025° map tile its outline touches, so the tile files contain more records than there are parcels — that's intentional.
+
+## Where the data comes from (and how to find it again)
+
+Both counties publish their parcels as free, public ArcGIS map services. `tools/refresh_data.py` queries them page by page (2,000 records per request) and asks for GeoJSON in latitude/longitude (`outSR=4326`).
+
+### Cuyahoga County
+
+- **Service in use:** https://gis.cuyahogacounty.gov/server/rest/services/CCFO/Parcel_Fabric_Taxparcels/FeatureServer/0 ("Parcel Fabric Taxparcels", run by the Cuyahoga County Fiscal Office). Updated daily.
+- **Fields used:** `parcel_id` (8 digits, no dashes), `parcel_owner` (owner as deeded), `par_addr_all` (full address), `parcel_city`, `parcel_zip`, `last_transfer_date` (milliseconds since 1970), `last_sales_amount`.
+- Other useful fields there if ever wanted: `grantor` (seller), `second_owner`, `mail_name` and mailing address, `tax_market_total`, `parcel_acreage`, land-use codes.
+- **Do not use** `Open_Data_Parcels/MapServer/1` — it looks the same but stopped updating in March 2026 (the September 2026 download came from it, which is why its sales were months old).
+- **If the service moves:** the full list of the county's services is at https://gis.cuyahogacounty.gov/server/rest/services (add `?f=json` for machine-readable). Look for a parcel layer with an owner field and a transfer-date field, and check it's current by asking for the newest transfer date: `…/query?where=1=1&outStatistics=[{"statisticType":"max","onStatisticField":"last_transfer_date","outStatisticFieldName":"mx"}]&f=json`. In Nov 2026 the county also had current copies at `MyPlace/Full_Map_Parcel_Fabric/MapServer/0` and a no-outline table at `CCGIS/Parcel_RP_CAMA_Table/MapServer/1`.
+- Manual lookup of one property: MyPlace, https://myplace.cuyahogacounty.gov
+
+### Geauga County
+
+- **Service in use:** https://gcgis.geauga.oh.gov/parcel/rest/services/AzureParcels/Parcels/FeatureServer/0 ("Parcels", Geauga County GIS). Current to within a few days.
+- **Fields used:** `PARCEL_ID` (e.g. `01-109800`), `Oname1` (owner), `LOCATION_A` / `LOCATION_C` / `LOCATION_Z` (address, city, ZIP), `Sale_Date` (text, `MM-DD-YYYY`), `Sale_Amt` (text with commas), `TaxDist` (e.g. `01-AUBURN TWP-KENSTON LSD`).
+- Other useful fields: `MailName1` and mailing address, `MktTotVal` (market value), `YearBuilt`, `LivingArea`, `ACRES`, `Sale_Valid`.
+- **If the service moves:** search the county's GIS hub, https://geauga-county-hub-geauga.hub.arcgis.com (search "parcels"), or its API: `https://geauga-county-hub-geauga.hub.arcgis.com/api/search/v1/collections/all/items?q=parcel`. The hub also has yearly "Parcel History" services (e.g. 2021–2025) if past owners are ever needed.
+- **Backup downloads** (no outlines, but owner and sale info) on the Auditor's site, https://realestate.geauga.oh.gov, under "Real Estate & GIS Data Downloads":
+  - GIS Extract (daily, ~12 MB zip with one spreadsheet, `Parcel GIS.xlsx`: parcel number, Listed Name, Date Conveyed, Consideration, address, values): https://realestate.geauga.oh.gov/api/Document/GISExtract.zip
+  - Public Records Extract (daily, ~370 MB zip of XML tables incl. `Parcel Transfer.xml` full sales history and `Parcel Owner.xml`; layout in `File Layout.xlsx`): https://realestate.geauga.oh.gov/api/Document/PublicRecordsExtract.zip
+  - Yearly complete transfer reports (Excel) are linked on the same page.
+
+### Testing a source without changing the app
+
+The workspace Claude uses can't always reach county servers directly, but GitHub's servers can. The pattern used in Nov 2026: put a small Python script in `tools/`, add a temporary workflow that runs it on a side branch and commits its output (a report file) back to that branch, read the report, then delete both. To try the real refresh safely, push changes to a branch named `data-refresh` — the refresh workflow runs there too, and publishes only to that branch.
 
 ## Google Maps setup
 
