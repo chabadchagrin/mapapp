@@ -6,9 +6,9 @@
  "stats": {
   "geauga_transfer_parcels": 55176,
   "geauga_matched": 28405,
-  "company_parcels": 4103,
-  "likely_owner_tax_bill": 134,
-  "likely_owner_deed": 1373,
+  "company_parcels": 3558,
+  "likely_owner_tax_bill": 132,
+  "likely_owner_deed": 619,
   "homes": 28145,
   "not_homes": 8339,
   "occ": {
