@@ -2,7 +2,7 @@ name: Inspect county data sources
 on:
   push:
     branches: [data-refresh]
-    paths: [tools/inspect_sources2.py]
+    paths: [tools/inspect_sources3.py]
 permissions:
   contents: write
 jobs:
@@ -14,10 +14,10 @@ jobs:
       - uses: actions/setup-python@v5
         with: {python-version: '3.12'}
       - run: pip install openpyxl
-      - run: python3 tools/inspect_sources2.py
+      - run: python3 tools/inspect_sources3.py
       - name: Commit report
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add inspect/report2.md
-          git commit -m "Source inspection report 2" && git pull --rebase -q && git push
+          git add inspect/report3.md
+          git commit -m "Source inspection report 3" && git pull --rebase -q && git push
