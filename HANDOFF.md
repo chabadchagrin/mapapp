@@ -82,6 +82,12 @@ Both counties publish their parcels as free, public ArcGIS map services. `tools/
 
 The workspace Claude uses can't always reach county servers directly, but GitHub's servers can. The pattern used in Nov 2026: put a small Python script in `tools/`, add a temporary workflow that runs it on a side branch and commits its output (a report file) back to that branch, read the report, then delete both. To try the real refresh safely, push changes to a branch named `data-refresh` — the refresh workflow runs there too, and publishes only to that branch.
 
+## Passcode screen
+
+The app opens with a simple passcode screen (added Nov 2026). Each device asks once and then remembers it (browser storage); clearing site data or using a new device asks again. It also tells search engines not to list the site. It is a curtain, not a lock: the passcode check runs in the page and the data files and this repository are still public. A real lock (encrypted data published from a private repo) was discussed and deferred.
+
+To change the passcode: compute its SHA-256 (e.g. `printf 'NEWCODE' | sha256sum`) and replace the `H='…'` value in the passcode script near the top of `index.html`. Every device will ask for the new code.
+
 ## Google Maps setup
 
 The site uses the Google Maps JavaScript API, with a key embedded in `index.html`.
