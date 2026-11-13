@@ -26,6 +26,8 @@ import sys
 import time
 import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
+import zipfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import clean_owner_names as names  # noqa: E402
@@ -53,6 +55,7 @@ GEA_DISTRICTS = {
     "29": "South Russell Village",
 }
 NEW_OWNER_DAYS = 120  # how long the app shows the "New owner" badge
+GEA_RECORDS = "https://realestate.geauga.oh.gov/api/Document/PublicRecordsExtract.zip"  # daily, ~370 MB
 
 
 # ------------------------------------------------------------------ download
@@ -111,10 +114,8 @@ def fetch_cuyahoga():
     print("Cuyahoga…", flush=True)
     where = ("parcel_city IN (%s) OR parcel_city LIKE 'CHAGRIN FALLS T%%'"
              % ",".join("'%s'" % c for c in CUY_CITIES))
-    fields = ["parcel_id", "parcel_owner", "par_addr_all", "parcel_city", "parcel_zip",
-              "last_transfer_date", "last_sales_amount"]
     out = []
-    for f in fetch_all(CUY_URL, where, fields, "ObjectID"):
+    for f in fetch_all(CUY_URL, where, ["*"], "ObjectID"):
         a = f.get("properties") or {}
         pid = (a.get("parcel_id") or "").replace("-", "").strip()
         if not pid or not f.get("geometry"):
@@ -132,7 +133,28 @@ def fetch_cuyahoga():
             "property_zip": str(int(float(a["parcel_zip"]))) if a.get("parcel_zip") else "",
             "sale_date": epoch_ms_to_date(a.get("last_transfer_date")),
             "sale_price": money(a.get("last_sales_amount")),
+            **extras(
+                use=land_use(first(a, "tax_luc", "ext_luc"), first(a, "tax_luc_description", "ext_luc_description") or ""),
+                built=first(a, "year_built", "yr_built", "res_year_built", "yearbuilt"),
+                occ=occupancy(a.get("par_addr_all"), " ".join(x for x in [a.get("mail_addr_street"), a.get("mail_unit_no")] if x),
+                              a.get("mail_name"), a.get("mail_city")),
+                owner=a.get("parcel_owner")),
+            "_grantor": a.get("grantor") or "",
+            "_mail_name": a.get("mail_name") or "",
         }))
+    return out
+
+
+def extras(use, built, occ, owner):
+    label, home = use
+    out = {"use": label, "home": None if home is None else int(bool(home)),
+           "occ": occ[0], "mail": occ[1], "otype": owner_type(owner)}
+    try:
+        y = int(str(built).strip()[:4]) if built else 0
+        if 1700 < y <= dt.date.today().year + 1:
+            out["built"] = y
+    except ValueError:
+        pass
     return out
 
 
@@ -140,7 +162,8 @@ def fetch_geauga():
     print("Geauga…", flush=True)
     where = " OR ".join(f"TaxDist LIKE '{c}-%'" for c in GEA_DISTRICTS)
     fields = ["PARCEL_ID", "Oname1", "LOCATION_A", "LOCATION_C", "LOCATION_Z", "Sale_Date",
-              "Sale_Amt", "TaxDist", "Par_Status"]
+              "Sale_Amt", "TaxDist", "Par_Status", "PropClass", "HomeFlag", "YearBuilt",
+              "MailName1", "MailStreet", "MailCity"]
     out = []
     for f in fetch_all(GEA_URL, where, fields, "OBJECTID_1"):
         a = f.get("properties") or {}
@@ -160,8 +183,207 @@ def fetch_geauga():
             "property_zip": (a.get("LOCATION_Z") or "").strip(),
             "sale_date": f"{m.group(3)}-{m.group(1)}-{m.group(2)}" if m else None,
             "sale_price": money(a.get("Sale_Amt")),
+            **extras(
+                use=land_use(a.get("PropClass"), "",
+                             {"YES": True, "NO": False}.get((a.get("HomeFlag") or "").strip().upper())),
+                built=a.get("YearBuilt"),
+                occ=occupancy(a.get("LOCATION_A"), a.get("MailStreet"), a.get("MailName1"), a.get("MailCity")),
+                owner=a.get("Oname1")),
+            "_grantor": "",
+            "_mail_name": a.get("MailName1") or "",
         }))
     return out
+
+
+# ------------------------------------------------- land use / occupancy / owner
+EXEMPT = {"61": "Federal land", "62": "State land", "63": "County land", "64": "City / village land",
+          "65": "School", "66": "Park", "67": "College / private school", "68": "Charity / church",
+          "69": "Cemetery"}
+
+
+def land_use(code, desc="", home_flag=None):
+    """Ohio land-use code (3 digits) -> (short label, has a home)."""
+    code = re.sub(r"\D", "", str(code or ""))[:3]
+    d = (desc or "").upper()
+    label, home = None, None
+    if len(code) == 3:
+        c = int(code)
+        if 100 <= c < 200:
+            label, home = ("Farmland", False) if "VACANT" in d or c == 100 else ("Farm", True)
+        elif 200 <= c < 300:
+            label, home = "Mineral rights", False
+        elif 300 <= c < 400:
+            label, home = "Industrial", False
+        elif c == 400:
+            label, home = "Vacant commercial land", False
+        elif 401 <= c <= 403:
+            label, home = "Apartments", True
+        elif 400 < c < 500:
+            label, home = "Commercial", False
+        elif 500 <= c <= 509:
+            label, home = "Vacant lot", False
+        elif 510 <= c <= 519:
+            label, home = "Single-family home", True
+        elif c == 520:
+            label, home = "Two-family home", True
+        elif c == 530:
+            label, home = "Three-family home", True
+        elif 550 <= c <= 559:
+            label, home = "Condo", True
+        elif c == 560:
+            label, home = "Mobile home", True
+        elif 500 <= c < 600:
+            label, home = "Other residential (no house)", False
+        elif 600 <= c < 700:
+            label, home = EXEMPT.get(code[:2], "Tax-exempt land"), False
+            if c == 685:
+                label = "Church"
+    if label is None:
+        if "VACANT" in d:
+            label, home = "Vacant land", False
+        elif d:
+            label, home = d.title()[:40], None
+    if home_flag is not None:          # Geauga says directly whether there's a dwelling
+        home = home_flag
+        if home and label in ("Vacant lot", "Other residential (no house)", None):
+            label = "Home"
+    return label, home
+
+
+def street_key(addr):
+    """'490  WALTERS RD, CHAGRIN FALLS…' -> '490 WALTERS' (house number + first street word)."""
+    a = re.sub(r"[^A-Z0-9 ]", " ", (addr or "").upper().split(",")[0])
+    w = a.split()
+    if len(w) >= 2 and w[0].isdigit() and w[0] != "0":
+        nxt = [x for x in w[1:] if x not in ("N", "S", "E", "W", "NORTH", "SOUTH", "EAST", "WEST")]
+        return w[0] + " " + (nxt[0] if nxt else w[1])
+    return None
+
+
+def occupancy(prop_addr, mail_street, mail_name, mail_city):
+    """('here'|'po'|'away', text shown on the card or '')."""
+    ms = (mail_street or "").upper()
+    if not ms.strip():
+        return None, ""
+    if re.search(r"\bP\.? ?O\.? ?BOX\b|\bBOX \d", ms):
+        return "po", f"PO Box, {mail_city.title()}" if mail_city else "PO Box"
+    pk, mk = street_key(prop_addr), street_key(ms)
+    if pk and mk and pk == mk:
+        return "here", ""
+    return "away", (mail_name or "", ms, mail_city or "")
+
+
+def fmt_street(s):
+    s = re.sub(r"\s+", " ", s or "").strip().title()
+    s = re.sub(r"(\d)(St|Nd|Rd|Th)\b", lambda m: m.group(1) + m.group(2).lower(), s)
+    return re.sub(r"\bC/O\b", "c/o", s, flags=re.I)
+
+
+GOV_RE = re.compile(r"(?<![\w-])(CITY|VILLAGE|TOWNSHIP|TWP|COUNTY|STATE OF|BOARD OF|COMMISSIONERS|PARK DISTRICT|"
+                    r"METROPARKS|EDUCATION|LIBRARY|UNITED STATES|USA|DEPT|DEPARTMENT|AUTHORITY|"
+                    r"LAND BANK|REUTILIZATION|TRUSTEES)(?![\w-])")
+REL_RE = re.compile(r"(?<![\w-])(CHURCH|PARISH|TEMPLE|SYNAGOGUE|CONGREGATION|DIOCESE|BISHOP|MINISTR\w*|FELLOWSHIP|"
+                    r"CHABAD|LUTHERAN|METHODIST|PRESBYTERIAN|BAPTIST|EPISCOPAL|CATHOLIC|CEMETERY)(?![\w-])")
+HOA_RE = re.compile(r"(?<![\w-])(HOMEOWNERS?|HOME OWNERS|ASSOC|ASSN|ASSOCIATION|CONDOMINIUMS?|CONDO|COLONY)(?![\w-])")
+BIZ_RE = re.compile(r"(?<![\w-])(LLC|L L C|INC|INCORPORATED|CORP|CORPORATION|CO|COMPANY|LTD|LP|LLP|PLL|PARTNERS|"
+                    r"PARTNERSHIP|HOLDINGS?|PROPERTIES|PROPERTY|INVESTMENTS?|REALTY|BANK|DEVELOPMENT|"
+                    r"ENTERPRISES|GROUP|BUILDERS|NVR|VENTURES?|CAPITAL|MANAGEMENT|RENTALS?)(?![\w-])")
+
+
+def owner_type(raw):
+    """'' for people (including family trusts) or company / government / hoa / religious."""
+    n = " ".join(re.split(r"[\s,.]+", (raw or "").upper()))   # keeps 'CO-TRS' as one token
+    if not n.strip():
+        return ""
+    if REL_RE.search(n):
+        return "religious"
+    if re.search(r"(?<![\w-])(SCHOOLS?|ACADEMY|COLLEGE|UNIVERSITY)(?![\w-])", n):
+        return "school"
+    if HOA_RE.search(n):
+        return "hoa"
+    if BIZ_RE.search(n):
+        return "company"
+    if GOV_RE.search(n) and not re.search(r"\bTRUSTEES?\b", n.replace("TWP TRUSTEES", "TWP")):
+        return "government"
+    if re.search(r"\bTWP TRUSTEES\b|\bTOWNSHIP TRUSTEES\b", n):
+        return "government"
+    return ""
+
+
+def first(a, *keys):
+    for k in keys:
+        if a.get(k) not in (None, "", 0, "0"):
+            return a[k]
+    return None
+
+
+def geauga_sellers():
+    """parcel number -> (date, price, seller) of its latest transfer, from the Auditor's daily extract."""
+    print("Geauga transfer records…", flush=True)
+    path = "/tmp/geauga_records.zip"
+    req = urllib.request.Request(GEA_RECORDS, headers={"User-Agent": "chabadchagrin-mapapp-refresh"})
+    with urllib.request.urlopen(req, timeout=1800) as r, open(path, "wb") as fh:
+        while True:
+            chunk = r.read(1 << 20)
+            if not chunk:
+                break
+            fh.write(chunk)
+    zf = zipfile.ZipFile(path)
+    name = next(n for n in zf.namelist() if n.lower() == "parcel transfer.xml")
+    best = {}
+    with zf.open(name) as fh:
+        depth = 0
+        for ev, el in ET.iterparse(fh, events=("start", "end")):
+            if ev == "start":
+                depth += 1
+                continue
+            depth -= 1
+            if depth != 1:
+                continue
+            rec = {k.lower(): (v or "").strip() for k, v in el.attrib.items()}
+            rec.update({c.tag.lower(): (c.text or "").strip() for c in el})
+            el.clear()
+            pid = rec.get("parcel_number", "")
+            seller = rec.get("seller_listed_name") or rec.get("seller_deeded_name") or ""
+            date = (rec.get("date_conveyed") or "")[:10]
+            try:
+                seq = int(rec.get("sequence") or 0)
+            except ValueError:
+                seq = 0
+            if not pid:
+                continue
+            key = (date, seq)
+            if pid not in best or key > best[pid][0]:
+                best[pid] = (key, money(rec.get("consideration")), seller)
+    os.remove(path)
+    print(f"  {len(best)} parcels with transfers", flush=True)
+    return {pid: v[1:] for pid, v in best.items()}
+
+
+def person_from_mail(mail_name, owner_raw):
+    """A person's name hidden in the tax-bill name, e.g. 'SHELTER HILL FARM LLC PETER DRAGO' -> 'PETER DRAGO'."""
+    m = re.sub(r"\s+", " ", mail_name or "").strip()
+    if not m or norm_owner(m) == norm_owner(owner_raw):
+        return ""
+    tail = re.split(r"(?<![\w-])(?:L\.?L\.?C\.?|INC\.?|LTD\.?|CORP\.?)(?![\w-])[\s,.]*", m, flags=re.I)[-1]
+    tail = re.sub(r"^(C/O|ATTN:?)\s+", "", tail.strip(), flags=re.I)
+    if len(tail.split()) >= 2 and owner_type(tail) == "":
+        return tail
+    return ""
+
+
+def likely_owner(p):
+    """For company-owned parcels: (raw name, reason) of the person most likely behind the company."""
+    if p.get("otype") != "company":
+        return "", ""
+    who = person_from_mail(p.get("_mail_name"), p["owner_raw"])
+    if who:
+        return who, "tax bill"
+    g = (p.get("_grantor") or "").strip()
+    if g and not p.get("sale_price") and owner_type(g) == "" and norm_owner(g) != norm_owner(p["owner_raw"]):
+        year = (p.get("sale_date") or "")[:4]
+        return g, f"deeded it to the company{' in ' + year if year else ''} for $0"
+    return "", ""
 
 
 # ------------------------------------------------------------ previous data
@@ -227,6 +449,20 @@ def main():
     prev_date = prev_meta.get("updated") or "2026-09-01"
 
     records = fetch_cuyahoga() + fetch_geauga()
+    stats = {}
+    try:
+        sellers = geauga_sellers()
+        matched = 0
+        for _, p in records:
+            if p["source_county"] == "Geauga" and p["parcel_id"] in sellers:
+                _, price, seller = sellers[p["parcel_id"]]
+                p["_grantor"] = seller
+                matched += 1
+        stats["geauga_transfer_parcels"] = len(sellers)
+        stats["geauga_matched"] = matched
+    except Exception as e:  # noqa — the rest of the refresh still runs without it
+        print(f"WARNING: Geauga transfer records unavailable: {e!r}", flush=True)
+        stats["geauga_transfer_error"] = repr(e)[:200]
 
     # ---- sanity check against last time
     new_counts = collections.Counter(p["source_county"] for _, p in records)
@@ -252,6 +488,14 @@ def main():
         key = (p["source_county"], p["parcel_id"])
         old = prev.get(key)
         p["owner_name"] = names.clean_name(p["owner_raw"], sur, giv)
+        lo, why = likely_owner(p)
+        if lo:
+            p["likely"] = names.clean_name(lo, sur, giv)
+            p["likely_why"] = why
+        if p.get("occ") == "away" and isinstance(p.get("mail"), tuple):
+            mn, ms, mc = p["mail"]
+            mname = names.clean_name(mn, sur, giv) if mn.strip() else ""
+            p["mail"] = ", ".join(x for x in [mname, fmt_street(ms), mc.strip().title()] if x)
         if old:
             old_raw = old.get("owner_raw", old.get("owner_name")) or ""
             if norm_owner(old_raw) != norm_owner(p["owner_raw"]) and p["owner_raw"]:
@@ -272,6 +516,12 @@ def main():
                     if old.get(k):
                         p[k] = old[k]
 
+    stats["company_parcels"] = sum(1 for _, p in records if p.get("otype") == "company")
+    stats["likely_owner_tax_bill"] = sum(1 for _, p in records if p.get("likely_why") == "tax bill")
+    stats["likely_owner_deed"] = sum(1 for _, p in records if (p.get("likely_why") or "").startswith("deeded"))
+    stats["homes"] = sum(1 for _, p in records if p.get("home") == 1)
+    stats["not_homes"] = sum(1 for _, p in records if p.get("home") == 0)
+    stats["occ"] = dict(collections.Counter(p.get("occ") or "none" for _, p in records))
     log["refreshes"].append({"date": today, "previous": prev_date, "parcels": sum(new_unique.values()),
                              "owner_changes": len(changes)})
     log["changes"] = changes + log.get("changes", [])
@@ -281,7 +531,8 @@ def main():
     for geom, p in records:
         props = {k: p[k] for k in ("source_county", "jurisdiction", "parcel_id", "owner_name", "owner_raw",
                                    "property_address", "property_city", "property_zip")}
-        for k in ("sale_date", "sale_price", "prev_owner", "changed_on", "change_kind"):
+        for k in ("sale_date", "sale_price", "prev_owner", "changed_on", "change_kind",
+                  "use", "home", "built", "occ", "mail", "otype", "likely", "likely_why"):
             if p.get(k) not in (None, ""):
                 props[k] = p[k]
         x0, y0, x1, y1 = bbox(geom)
@@ -292,7 +543,7 @@ def main():
     for old in glob.glob(os.path.join(DATA, "*.geojson")):
         os.remove(old)
     index = {"cellSize": CELL, "updated": today, "previous_update": prev_date,
-             "new_owner_days": NEW_OWNER_DAYS, "tiles": []}
+             "new_owner_days": NEW_OWNER_DAYS, "stats": stats, "tiles": []}
     for key, feats in sorted(tiles.items()):
         with open(os.path.join(DATA, f"{key}.geojson"), "w", encoding="utf-8") as fh:
             json.dump({"type": "FeatureCollection", "features": feats}, fh, ensure_ascii=False, separators=(",", ":"))
