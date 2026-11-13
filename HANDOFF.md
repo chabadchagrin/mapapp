@@ -14,8 +14,9 @@ A phone-friendly map for canvassing in selected areas of Cuyahoga and Geauga Cou
 - Parcel boundaries are invisible by default but tappable. Tapping a property opens the owner name, address, municipality, and county.
 - The search bar (top) accepts an address or an owner name.
 - The only other always-visible control is the circular locate button (bottom-right), which shows your location as a blue dot with a blue accuracy ring and keeps updating while the app is open.
-- Everything else lives behind the ☰ menu button (top-right) so the map itself stays uncluttered: **Save all parcel data** and **Clear parcel download**.
-- "Save all parcel data" saves the owner/parcel records (about 45 MB) to the phone so property lookups — tapping a house and seeing the owner — keep working with no signal, even though the map picture itself will still need a connection to load. Do this once over Wi-Fi before heading out.
+- Everything else lives behind the ☰ menu button (top-right) so the map itself stays uncluttered: **Highlight recent sales**, the date the owner data was last refreshed, **Save all parcel data** and **Clear parcel download**.
+- The owner card shows the cleaned-up owner name, "Owner since … · bought for $…" (or "Deed recorded … (no sale price)" when the last deed had no price, e.g. a move into a trust), and a **NEW OWNER** badge with the previous owner for 120 days after a change of hands is detected.
+- "Save all parcel data" saves the owner/parcel records (about 30 MB) to the phone so property lookups — tapping a house and seeing the owner — keep working with no signal, even though the map picture itself will still need a connection to load. Do this once over Wi-Fi before heading out.
 
 ## Sept 2026 cleanup — what changed and why
 
@@ -25,13 +26,25 @@ A phone-friendly map for canvassing in selected areas of Cuyahoga and Geauga Cou
 - **Added a proper app icon and install manifest** (`manifest.json`, `icon-192.png`, `icon-512.png`) so the phone can install this as a real app via "Add to Home Screen" / "Install app" in Chrome, instead of just a browser bookmark. Installing it this way also makes Android less likely to silently clear the saved offline data.
 - **Removed the unused Cloudflare Worker / GitHub Actions / R2 pipeline.** A previous pass had added a whole backend (Worker + GitHub Action + private R2 bucket) meant to build custom offline map packages on demand. It was never finished being deployed and was never wired into the app — no button in `index.html` ever called it. It's been moved to `_to_delete/` in this folder (along with the Leaflet library files from the reverted experiment above), not deleted outright since this assistant can't delete files on this computer without your say-so. Safe to delete that folder yourself once you've confirmed you don't need anything in it. Two now-empty folders, `.github/workflows` and `.github`, were left behind for the same reason and are also safe to delete.
 
+## Monthly data refresh (Nov 2026)
+
+Owner data refreshes itself on the 1st of every month via the GitHub Action `.github/workflows/refresh-data.yml`, which runs `tools/refresh_data.py`. To refresh sooner: GitHub → Actions → "Refresh parcel data" → **Run workflow** (also linked from the app's ☰ menu as "refresh now").
+
+- **Sources:** Cuyahoga — `CCFO/Parcel_Fabric_Taxparcels` map service (updated daily; the older `Open_Data_Parcels` layer stopped updating in March 2026, don't go back to it). Geauga — `AzureParcels/Parcels` map service from Geauga GIS. Both are public; nothing is downloaded by hand.
+- **Areas covered** are listed at the top of `tools/refresh_data.py` (6 Cuyahoga cities, 9 Geauga areas by tax-district code). Add an area there.
+- **Names** are cleaned by `tools/clean_owner_names.py` (drops TRUSTEE/TOD/ETAL/AKA, first names first, normal capitalization). The county's original text is kept as `owner_raw`, and owner search matches either.
+- **Changes of hands:** each run compares owners with the previous data. Changes get `prev_owner`, `changed_on`, `change_kind` (`sale` / `transfer` / `family` — family = same surname, e.g. retitled into a trust; no badge) and are appended to `parcel-data/changes.json`.
+- **Safety:** the run stops without publishing if a county or any area returns noticeably fewer parcels than last time.
+- After a refresh, phones see "New owner data is available" in the ☰ menu; tap Save all parcel data again to update the offline copy.
+
 ## Files that matter
 
 - `index.html` — the entire app UI and map logic. All future edits should be made here.
 - `offline-controls.js` — builds the ☰ menu's offline-download controls and talks to the service worker.
 - `service-worker.js` — handles the app cache and the parcel-data offline download.
 - `manifest.json`, `icon-192.png`, `icon-512.png` — enable "Add to Home Screen" install.
-- `parcel-data/` — the locally hosted parcel GeoJSON tiles plus `index.json`. Do not rename or remove; `index.html` needs it exactly where it is.
+- `parcel-data/` — parcel GeoJSON tiles, `index.json` (tile list + data date) and `changes.json` (owner-change log). Generated by the refresh; don't edit by hand.
+- `tools/refresh_data.py`, `tools/clean_owner_names.py`, `.github/workflows/refresh-data.yml` — the monthly refresh.
 
 ## Data coverage
 
@@ -51,8 +64,8 @@ The key is intentionally usable in browser code but is restricted to the GitHub 
 
 ## Publishing updates
 
-1. Edit files in this folder.
-2. In GitHub repository `chabadchagrin/mapapp`, upload the changed files to the repository root and commit directly to `main`. A full refresh of the app should include: `index.html`, `offline-controls.js`, `service-worker.js`, `manifest.json`, `icon-192.png`, `icon-512.png`.
+1. Edit the files (in a clone of the repository, or directly on GitHub).
+2. Commit to `main`. The service worker loads app files network-first, so phones pick up changes the next time they open the app with signal — no cache-version bump needed.
 3. GitHub Pages normally updates https://chabadchagrin.github.io/mapapp/ within a minute or two.
 
 No build process, package install, or server is needed.
