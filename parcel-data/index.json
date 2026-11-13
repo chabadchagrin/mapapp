@@ -1,8 +1,22 @@
 {
  "cellSize": 0.025,
  "updated": "2026-11-13",
- "previous_update": "2026-09-01",
+ "previous_update": "2026-11-13",
  "new_owner_days": 120,
+ "stats": {
+  "geauga_transfer_error": "ValueError('not enough values to unpack (expected 3, got 2)')",
+  "company_parcels": 4103,
+  "likely_owner_tax_bill": 520,
+  "likely_owner_deed": 192,
+  "homes": 10211,
+  "not_homes": 26273,
+  "occ": {
+   "here": 24065,
+   "away": 11410,
+   "po": 1003,
+   "none": 14
+  }
+ },
  "tiles": [
   {
    "key": "-3248_1653",
