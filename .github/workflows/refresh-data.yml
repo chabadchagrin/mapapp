@@ -1,0 +1,27 @@
+name: Refresh parcel data
+on:
+  schedule:
+    - cron: '23 9 1 * *'   # 1st of every month, ~4:23-5:23 am Eastern
+  workflow_dispatch:        # "Run workflow" button on GitHub
+  push:
+    branches: [data-refresh]
+    paths: [tools/refresh_data.py, tools/clean_owner_names.py, .github/workflows/refresh-data.yml]
+permissions:
+  contents: write
+concurrency: refresh-data
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - run: python3 tools/refresh_data.py
+      - name: Publish
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A parcel-data
+          git commit -q -m "Refresh parcel data $(date +%Y-%m-%d)" || exit 0
+          git pull --rebase -q && git push
