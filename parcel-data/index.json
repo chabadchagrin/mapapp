@@ -4,12 +4,13 @@
  "previous_update": "2026-11-13",
  "new_owner_days": 120,
  "stats": {
-  "geauga_transfer_error": "ValueError('not enough values to unpack (expected 3, got 2)')",
+  "geauga_transfer_parcels": 55176,
+  "geauga_matched": 28405,
   "company_parcels": 4103,
-  "likely_owner_tax_bill": 520,
-  "likely_owner_deed": 192,
-  "homes": 10211,
-  "not_homes": 26273,
+  "likely_owner_tax_bill": 134,
+  "likely_owner_deed": 1373,
+  "homes": 28145,
+  "not_homes": 8339,
   "occ": {
    "here": 24065,
    "away": 11410,
