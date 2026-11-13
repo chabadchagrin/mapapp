@@ -291,7 +291,8 @@ BIZ_RE = re.compile(r"(?<![\w-])(LLC|L L C|INC|INCORPORATED|CORP|CORPORATION|CO|
 
 def owner_type(raw):
     """'' for people (including family trusts) or company / government / hoa / religious."""
-    n = " ".join(re.split(r"[\s,.]+", (raw or "").upper()))   # keeps 'CO-TRS' as one token
+    n = names.TAG_RE.sub(" ", (raw or "").upper())             # drop 'CO TRUSTEES', 'TRS', 'TOD'...
+    n = " ".join(re.split(r"[\s,.]+", n))
     if not n.strip():
         return ""
     if REL_RE.search(n):
@@ -402,7 +403,8 @@ def likely_owner(p):
     if who:
         return who, "tax bill"
     g = (p.get("_grantor") or "").strip()
-    if g and not p.get("sale_price") and owner_type(g) == "" and norm_owner(g) != norm_owner(p["owner_raw"]):
+    if (g and not p.get("sale_price") and owner_type(g) == "" and norm_owner(g) != norm_owner(p["owner_raw"])
+            and not re.search(r"UNKNOWN|COMBINATION|PARCEL|SPLIT|\*|\d", g.upper())):
         year = (p.get("sale_date") or "")[:4]
         return g, f"deeded it to the company{' in ' + year if year else ''} for $0"
     return "", ""
