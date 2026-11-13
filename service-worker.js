@@ -4,18 +4,23 @@
 const SHELL_CACHE='map-app-shell-v6';
 const PARCEL_CACHE='map-app-parcels-v6';
 const CURRENT=[SHELL_CACHE,PARCEL_CACHE];
+const SAVED_MARK='./__parcels-saved__';
 const APP_SHELL=['./','./index.html','./parcel-data/index.json','./offline-controls.js','./manifest.json','./icon-192.png','./icon-512.png'];
 
 self.addEventListener('install',event=>event.waitUntil(caches.open(SHELL_CACHE).then(cache=>cache.addAll(APP_SHELL)).then(()=>self.skipWaiting())));
-self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key=>key.startsWith('map-app-')&&!CURRENT.includes(key)).map(key=>caches.delete(key)))).then(()=>self.clients.claim())));
+self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key=>key.startsWith('map-app-')&&!CURRENT.includes(key)).map(key=>caches.delete(key))))
+  .then(()=>caches.open(PARCEL_CACHE)).then(cache=>cache.match(SAVED_MARK).then(m=>m?null:caches.delete(PARCEL_CACHE)))
+  .then(()=>self.clients.claim())));
 
 self.addEventListener('fetch',event=>{
   const request=event.request,url=new URL(request.url);
   if(request.method!=='GET'||url.origin!==self.location.origin)return;
   const tile=url.pathname.includes('/parcel-data/')&&url.pathname.endsWith('.geojson');
   if(tile){
-    event.respondWith(caches.open(PARCEL_CACHE).then(cache=>cache.match(request,{ignoreSearch:!url.search}).then(cached=>cached||fetch(request).then(response=>{
-      if(response.ok)cache.put(request,response.clone());
+    // Tiles are kept on the phone only after "Save all parcel data" (marked by SAVED_MARK).
+    // Otherwise they're fetched as needed and nothing is stored, to save space.
+    event.respondWith(caches.open(PARCEL_CACHE).then(cache=>Promise.all([cache.match(request),cache.match(SAVED_MARK)]).then(([cached,saved])=>cached||fetch(request).then(response=>{
+      if(saved&&response.ok)cache.put(request,response.clone());
       return response;
     }))));
     return;
@@ -45,6 +50,7 @@ self.addEventListener('message',event=>{
       }catch(_){}
       send({type:'progress',saved,total:data.urls.length});
     }
+    await cache.put(SAVED_MARK,new Response('1'));
     send({type:'complete',saved,total:data.urls.length});
   }));
 });

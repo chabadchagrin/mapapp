@@ -26,7 +26,7 @@ function renderIdleStatus(){
     const when=new Date(meta.savedAt).toLocaleDateString();
     statusLine.textContent=`Parcel data saved ${when} (about 30 MB). The map picture itself still needs signal to load.`;
   }else{
-    statusLine.textContent='Owner names not saved yet. Saves about 30 MB so property lookups work with no signal. The map picture itself still needs signal to load.';
+    statusLine.textContent='Nothing saved on this phone. Owner info loads from the internet as you go. Saving (about 30 MB) lets property lookups work with no signal; the map picture itself still needs signal.';
   }
 }
 renderIdleStatus();
