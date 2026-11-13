@@ -17,16 +17,20 @@ function readMeta(){try{return JSON.parse(localStorage.getItem(META_KEY)||'null'
 function writeMeta(meta){try{localStorage.setItem(META_KEY,JSON.stringify(meta))}catch(_){}}
 function clearMeta(){try{localStorage.removeItem(META_KEY)}catch(_){}}
 
+let dataVersion=null;
 function renderIdleStatus(){
   const meta=readMeta();
-  if(meta&&meta.savedAt){
+  if(meta&&meta.savedAt&&dataVersion&&meta.version!==dataVersion){
+    statusLine.textContent='New owner data is available. Tap "Save all parcel data" again to update what is saved on this device.';
+  }else if(meta&&meta.savedAt){
     const when=new Date(meta.savedAt).toLocaleDateString();
-    statusLine.textContent=`Parcel data saved ${when} (about 45 MB). The map picture itself still needs signal to load.`;
+    statusLine.textContent=`Parcel data saved ${when} (about 30 MB). The map picture itself still needs signal to load.`;
   }else{
-    statusLine.textContent='Owner names not saved yet. Saves about 45 MB so property lookups work with no signal. The map picture itself still needs signal to load.';
+    statusLine.textContent='Owner names not saved yet. Saves about 30 MB so property lookups work with no signal. The map picture itself still needs signal to load.';
   }
 }
 renderIdleStatus();
+fetch('parcel-data/index.json',{cache:'no-cache'}).then(r=>r.json()).then(i=>{dataVersion=i.updated||null;renderIdleStatus()}).catch(()=>{});
 
 function getController(){
   if(!('serviceWorker'in navigator))return Promise.resolve(null);
@@ -51,7 +55,7 @@ if('serviceWorker'in navigator)navigator.serviceWorker.addEventListener('message
   if(data.type==='complete'){
     downloadBtn.disabled=false;downloadBtn.textContent='Save all parcel data';
     if(navigator.storage&&navigator.storage.persist)navigator.storage.persist().catch(()=>{});
-    writeMeta({savedAt:Date.now()});
+    writeMeta({savedAt:Date.now(),version:dataVersion});
     renderIdleStatus();
     tell(`${data.saved} of ${data.total} parcel areas are ready offline.`);
   }
@@ -63,12 +67,12 @@ if('serviceWorker'in navigator)navigator.serviceWorker.addEventListener('message
 });
 
 downloadBtn.onclick=async()=>{
-  if(!confirm('Save the full parcel-owner dataset for offline use? This uses about 45 MB. (The map picture itself still needs signal.)'))return;
+  if(!confirm('Save the full parcel-owner dataset for offline use? This uses about 30 MB. (The map picture itself still needs signal.)'))return;
   downloadBtn.disabled=true;downloadBtn.textContent='Preparing…';tell('Preparing offline download…');
   const control=await getController();
   if(!control){downloadBtn.disabled=false;downloadBtn.textContent='Save all parcel data';tell('Offline saving is still starting up. Wait a moment and try again.');return}
   let index;
-  try{index=await fetch('parcel-data/index.json').then(r=>r.json())}catch(_){downloadBtn.disabled=false;downloadBtn.textContent='Save all parcel data';tell('Could not start the offline download. Check your connection and try again.');return}
+  try{index=await fetch('parcel-data/index.json',{cache:'no-cache'}).then(r=>r.json());dataVersion=index.updated||dataVersion}catch(_){downloadBtn.disabled=false;downloadBtn.textContent='Save all parcel data';tell('Could not start the offline download. Check your connection and try again.');return}
   const parcelUrls=index.tiles.map(t=>new URL(t.url.replace(/^\//,''),location.href).href);
   control.postMessage({type:'download-parcels',urls:parcelUrls});
 };

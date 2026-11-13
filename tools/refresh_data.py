@@ -34,7 +34,8 @@ DATA = "parcel-data"
 CELL = 0.025
 PRECISION = 6  # decimal places in coordinates (~10 cm)
 
-CUY_URL = "https://gis.cuyahogacounty.gov/server/rest/services/Open_Data_Parcels/MapServer/1"
+# "Parcel Fabric" is updated daily; the Open_Data_Parcels layer stopped updating in March 2026.
+CUY_URL = "https://gis.cuyahogacounty.gov/server/rest/services/CCFO/Parcel_Fabric_Taxparcels/FeatureServer/0"
 CUY_CITIES = ["BENTLEYVILLE", "CHAGRIN FALLS", "CHAGRIN FALLS TOWNSHIP", "HUNTING VALLEY",
               "MORELAND HILLS", "PEPPER PIKE"]
 
@@ -108,25 +109,29 @@ def money(v):
 
 def fetch_cuyahoga():
     print("Cuyahoga…", flush=True)
-    where = "par_city IN (%s)" % ",".join("'%s'" % c for c in CUY_CITIES)
-    fields = ["parcel_id", "parcelpin", "deeded_owner", "par_addr_all", "par_city", "par_zip",
-              "transfer_date", "sales_amount"]
+    where = ("parcel_city IN (%s) OR parcel_city LIKE 'CHAGRIN FALLS T%%'"
+             % ",".join("'%s'" % c for c in CUY_CITIES))
+    fields = ["parcel_id", "parcel_owner", "par_addr_all", "parcel_city", "parcel_zip",
+              "last_transfer_date", "last_sales_amount"]
     out = []
-    for f in fetch_all(CUY_URL, where, fields, "OBJECTID"):
+    for f in fetch_all(CUY_URL, where, fields, "ObjectID"):
         a = f.get("properties") or {}
-        pid = (a.get("parcel_id") or a.get("parcelpin") or "").replace("-", "")
+        pid = (a.get("parcel_id") or "").replace("-", "").strip()
         if not pid or not f.get("geometry"):
             continue
+        city = (a.get("parcel_city") or "").strip().upper()
+        if city.startswith("CHAGRIN FALLS T"):
+            city = "CHAGRIN FALLS TOWNSHIP"
         out.append((f["geometry"], {
             "source_county": "Cuyahoga",
-            "jurisdiction": a.get("par_city") or "",
+            "jurisdiction": city,
             "parcel_id": pid,
-            "owner_raw": (a.get("deeded_owner") or "").strip(),
+            "owner_raw": re.sub(r"\s+", " ", a.get("parcel_owner") or "").strip(),
             "property_address": a.get("par_addr_all") or "",
-            "property_city": a.get("par_city") or "",
-            "property_zip": str(int(a["par_zip"])) if a.get("par_zip") else "",
-            "sale_date": epoch_ms_to_date(a.get("transfer_date")),
-            "sale_price": money(a.get("sales_amount")),
+            "property_city": city,
+            "property_zip": str(int(float(a["parcel_zip"]))) if a.get("parcel_zip") else "",
+            "sale_date": epoch_ms_to_date(a.get("last_transfer_date")),
+            "sale_price": money(a.get("last_sales_amount")),
         }))
     return out
 
@@ -183,6 +188,25 @@ def norm_owner(s):
     return re.sub(r"[^A-Z0-9&]+", " ", (s or "").upper()).strip()
 
 
+def surnames(raw):
+    """First word of each owner segment: 'SMITH JOHN & DOE JANE' -> {SMITH, DOE}."""
+    out = set()
+    for seg in re.split(r"&|\bAND\b", (raw or "").upper()):
+        words = [w for w in re.split(r"[^A-Z]+", seg) if len(w) > 1 and w not in ("MC", "DE", "DI", "LA", "VAN", "ST", "THE")]
+        if words:
+            out.add(words[0])
+    return out
+
+
+def change_kind(old_raw, new_raw, price):
+    """sale: money changed hands; family: same surname (retitled, into a trust, TOD...); transfer: other."""
+    if surnames(old_raw) & surnames(new_raw):
+        return "family"
+    if price and price >= 10000:
+        return "sale"
+    return "transfer"
+
+
 # ------------------------------------------------------------------- tiles
 def bbox(geom):
     xs, ys = [], []
@@ -212,6 +236,12 @@ def main():
         print(f"{county}: {new_counts[county]} features, {new_unique[county]} parcels (was {old_unique[county]})")
         if old_unique[county] and new_unique[county] < 0.95 * old_unique[county]:
             sys.exit(f"ABORT: {county} returned {new_unique[county]} parcels, last time {old_unique[county]}.")
+    new_j = collections.Counter((p["source_county"], p["jurisdiction"]) for p in {k: p for _, p in records for k in [(p["source_county"], p["parcel_id"])]}.values())
+    old_j = collections.Counter((p["source_county"], p["jurisdiction"]) for p in prev.values())
+    for key, n in sorted(old_j.items()):
+        print(f"  {key[0]} / {key[1]}: {new_j[key]} (was {n})")
+        if n >= 20 and new_j[key] < 0.9 * n:
+            sys.exit(f"ABORT: {key} returned {new_j[key]} parcels, last time {n}.")
 
     # ---- names
     sur, giv = names.learn([p["owner_raw"] for _, p in records])
@@ -227,17 +257,18 @@ def main():
             if norm_owner(old_raw) != norm_owner(p["owner_raw"]) and p["owner_raw"]:
                 p["prev_owner"] = names.clean_name(old_raw, sur, giv) if old_raw else ""
                 p["changed_on"] = today
+                p["change_kind"] = change_kind(old_raw, p["owner_raw"], p["sale_price"])
                 if key not in seen:
                     seen.add(key)
                     changes.append({
                         "county": p["source_county"], "parcel_id": p["parcel_id"],
                         "detected": today, "address": p["property_address"],
                         "jurisdiction": p["jurisdiction"],
-                        "from": old_raw, "to": p["owner_raw"],
+                        "kind": p["change_kind"], "from": old_raw, "to": p["owner_raw"],
                         "sale_date": p["sale_date"], "sale_price": p["sale_price"],
                     })
             else:
-                for k in ("prev_owner", "changed_on"):
+                for k in ("prev_owner", "changed_on", "change_kind"):
                     if old.get(k):
                         p[k] = old[k]
 
@@ -250,7 +281,7 @@ def main():
     for geom, p in records:
         props = {k: p[k] for k in ("source_county", "jurisdiction", "parcel_id", "owner_name", "owner_raw",
                                    "property_address", "property_city", "property_zip")}
-        for k in ("sale_date", "sale_price", "prev_owner", "changed_on"):
+        for k in ("sale_date", "sale_price", "prev_owner", "changed_on", "change_kind"):
             if p.get(k) not in (None, ""):
                 props[k] = p[k]
         x0, y0, x1, y1 = bbox(geom)

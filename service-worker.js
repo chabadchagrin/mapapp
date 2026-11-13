@@ -1,5 +1,8 @@
-const SHELL_CACHE='map-app-shell-v5';
-const PARCEL_CACHE='map-app-parcels-v5';
+// App files and parcel-data/index.json: network first, so updates arrive as soon as there's signal;
+// the cached copy is used when offline. Parcel tiles: cache first — their URLs carry ?v=<data date>,
+// so a monthly refresh produces new URLs and phones fetch the new data.
+const SHELL_CACHE='map-app-shell-v6';
+const PARCEL_CACHE='map-app-parcels-v6';
 const CURRENT=[SHELL_CACHE,PARCEL_CACHE];
 const APP_SHELL=['./','./index.html','./parcel-data/index.json','./offline-controls.js','./manifest.json','./icon-192.png','./icon-512.png'];
 
@@ -9,12 +12,18 @@ self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=
 self.addEventListener('fetch',event=>{
   const request=event.request,url=new URL(request.url);
   if(request.method!=='GET'||url.origin!==self.location.origin)return;
-  const parcel=url.pathname.includes('/parcel-data/');
-  const cacheName=parcel?PARCEL_CACHE:SHELL_CACHE;
-  event.respondWith(caches.open(cacheName).then(cache=>cache.match(request).then(cached=>cached||fetch(request).then(response=>{
+  const tile=url.pathname.includes('/parcel-data/')&&url.pathname.endsWith('.geojson');
+  if(tile){
+    event.respondWith(caches.open(PARCEL_CACHE).then(cache=>cache.match(request,{ignoreSearch:!url.search}).then(cached=>cached||fetch(request).then(response=>{
+      if(response.ok)cache.put(request,response.clone());
+      return response;
+    }))));
+    return;
+  }
+  event.respondWith(caches.open(SHELL_CACHE).then(cache=>fetch(request).then(response=>{
     if(response.ok)cache.put(request,response.clone());
     return response;
-  }))));
+  }).catch(()=>cache.match(request,{ignoreSearch:true}))));
 });
 
 self.addEventListener('message',event=>{
@@ -26,7 +35,8 @@ self.addEventListener('message',event=>{
     return;
   }
   if(data.type!=='download-parcels'||!Array.isArray(data.urls))return;
-  event.waitUntil(caches.open(PARCEL_CACHE).then(async cache=>{
+  // Start from an empty cache so tiles from older data versions don't pile up.
+  event.waitUntil(caches.delete(PARCEL_CACHE).then(()=>caches.open(PARCEL_CACHE)).then(async cache=>{
     let saved=0;
     for(const url of data.urls){
       try{
