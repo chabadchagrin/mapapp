@@ -184,8 +184,7 @@ def fetch_geauga():
             "sale_date": f"{m.group(3)}-{m.group(1)}-{m.group(2)}" if m else None,
             "sale_price": money(a.get("Sale_Amt")),
             **extras(
-                use=land_use(a.get("PropClass"), "",
-                             {"YES": True, "NO": False}.get((a.get("HomeFlag") or "").strip().upper())),
+                use=land_use(a.get("PropClass"), ""),   # HomeFlag is not a has-a-house flag
                 built=a.get("YearBuilt"),
                 occ=occupancy(a.get("LOCATION_A"), a.get("MailStreet"), a.get("MailName1"), a.get("MailCity")),
                 owner=a.get("Oname1")),
@@ -367,9 +366,32 @@ def person_from_mail(mail_name, owner_raw):
         return ""
     tail = re.split(r"(?<![\w-])(?:L\.?L\.?C\.?|INC\.?|LTD\.?|CORP\.?)(?![\w-])[\s,.]*", m, flags=re.I)[-1]
     tail = re.sub(r"^(C/O|ATTN:?)\s+", "", tail.strip(), flags=re.I)
-    if len(tail.split()) >= 2 and owner_type(tail) == "":
-        return tail
-    return ""
+    return tail if looks_like_person(tail, owner_raw) else ""
+
+
+NOT_PERSON = re.compile(r"(?<![\w-])(RD|ROAD|ST|STREET|AVE|AVENUE|DR|DRIVE|LN|LANE|BLVD|PKWY|CT|WAY|TRL|TRAIL|"
+                        r"PIKE|HWY|BOX|MGMT|ASSET|ASSETS|SERVICES?|SERVICING|FARMS?|ESTATES?|SUITE|STE|FLOOR|"
+                        r"DEPT|OFFICE|ACCOUNTING|ATTORNEYS?|LAW|TAX|PAYMENTS?|REAL|TITLE|LENDING|MORTGAGE|"
+                        r"FAMILY|FOUNDATION|FUND)(?![\w-])")
+
+
+def looks_like_person(t, owner_raw):
+    t = re.sub(r"\s+", " ", t or "").strip(" ,.")
+    words = [w for w in re.split(r"[\s,.]+", t.upper()) if w and w != "&"]
+    if not 2 <= len(words) <= 7 or re.search(r"\d", t) or owner_type(t) != "" or NOT_PERSON.search(t.upper()):
+        return False
+    own = {w for w in re.split(r"[^A-Z]+", (owner_raw or "").upper()) if len(w) > 2}
+    return not ({w for w in words if len(w) > 2} & own)   # a reworded company name isn't a person
+
+
+def format_person(raw, why, sur, giv):
+    """Deed names are 'LAST, FIRST'; tax-bill names are often already 'First Last'."""
+    w = [x for x in re.split(r"[\s,.]+", raw.upper()) if x and x != "&"]
+    if why == "tax bill" and "," not in raw and len(w) >= 2:
+        pg = lambda x: (giv[x] + 0.3) / (giv[x] + sur[x] + 1)
+        if pg(w[0]) > 0.6 and pg(w[-1]) < 0.5:          # natural order: just fix the capitals
+            return " ".join(names.cap_word(x) if x != "&" else "&" for x in raw.upper().split())
+    return names.clean_name(raw, sur, giv)
 
 
 def likely_owner(p):
@@ -455,7 +477,7 @@ def main():
         matched = 0
         for _, p in records:
             if p["source_county"] == "Geauga" and p["parcel_id"] in sellers:
-                _, price, seller = sellers[p["parcel_id"]]
+                price, seller = sellers[p["parcel_id"]]
                 p["_grantor"] = seller
                 matched += 1
         stats["geauga_transfer_parcels"] = len(sellers)
@@ -490,7 +512,7 @@ def main():
         p["owner_name"] = names.clean_name(p["owner_raw"], sur, giv)
         lo, why = likely_owner(p)
         if lo:
-            p["likely"] = names.clean_name(lo, sur, giv)
+            p["likely"] = format_person(lo, why, sur, giv)
             p["likely_why"] = why
         if p.get("occ") == "away" and isinstance(p.get("mail"), tuple):
             mn, ms, mc = p["mail"]
