@@ -1,5 +1,9 @@
 # The Map App — handoff
 
+## Starting a new chat
+
+Everything lives in this GitHub repository (`chabadchagrin/mapapp`): the app, the parcel data, the monthly refresh job and these notes. Nothing needed is kept on anyone's computer. To continue work, point a new chat at the repo and have it read this file first; it needs push access to the repo (the Claude GitHub app already has it), and changes should go to the `data-refresh` branch before `main` (see "Status and open items" below).
+
 ## Live site
 
 https://chabadchagrin.github.io/mapapp/
