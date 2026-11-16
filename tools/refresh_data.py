@@ -491,14 +491,14 @@ def main():
     # ---- sanity check against last time
     new_counts = collections.Counter(p["source_county"] for _, p in records)
     new_unique = collections.Counter(c for c, _ in {(p["source_county"], p["parcel_id"]) for _, p in records})
-    old_unique = collections.Counter(c for c, _ in prev)
+    configured = {("Cuyahoga", c) for c in CUY_CITIES} | {("Geauga", a) for a in GEA_DISTRICTS.values()}
+    old_unique = collections.Counter(c for (c, _), p in prev.items() if (c, p["jurisdiction"]) in configured)
     for county in ("Cuyahoga", "Geauga"):
         print(f"{county}: {new_counts[county]} features, {new_unique[county]} parcels (was {old_unique[county]})")
         if old_unique[county] and new_unique[county] < 0.95 * old_unique[county]:
             sys.exit(f"ABORT: {county} returned {new_unique[county]} parcels, last time {old_unique[county]}.")
     new_j = collections.Counter((p["source_county"], p["jurisdiction"]) for p in {k: p for _, p in records for k in [(p["source_county"], p["parcel_id"])]}.values())
     old_j = collections.Counter((p["source_county"], p["jurisdiction"]) for p in prev.values())
-    configured = {("Cuyahoga", c) for c in CUY_CITIES} | {("Geauga", a) for a in GEA_DISTRICTS.values()}
     for key, n in sorted(old_j.items()):
         print(f"  {key[0]} / {key[1]}: {new_j[key]} (was {n})")
         if key not in configured:
