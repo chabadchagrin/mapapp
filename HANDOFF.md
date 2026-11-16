@@ -65,11 +65,11 @@ How Claude worked on this repo: a GitHub connection with push access to `chabadc
 
 ## Data coverage
 
-Cuyahoga (6 areas, matched on the county's `parcel_city` field): Bentleyville, Chagrin Falls, Chagrin Falls Township, Hunting Valley, Moreland Hills, Pepper Pike.
+Cuyahoga (5 areas, matched on the county's `parcel_city` field): Bentleyville, Chagrin Falls, Chagrin Falls Township, Hunting Valley, Moreland Hills. (Pepper Pike was removed on Nov 16, 2026 at Shneur's request; to add it back, add "PEPPER PIKE" to `CUY_CITIES` in `tools/refresh_data.py`. Its old data is still in this repository's git history.)
 
 Geauga (9 areas, matched on the first two digits of the county's `TaxDist` field, which are also the first two digits of the parcel number): Auburn Twp (01), Bainbridge Twp (02, 03), Chardon Twp (06–09), City of Chardon (10), Chester Twp (11), Munson Twp (21, 22), Russell Twp (26, 28), Hunting Valley Village (27), South Russell Village (29).
 
-About 36,500 parcels total. Each parcel is written into every 0.025° map tile its outline touches, so the tile files contain more records than there are parcels — that's intentional.
+About 33,500 parcels total. Each parcel is written into every 0.025° map tile its outline touches, so the tile files contain more records than there are parcels — that's intentional.
 
 ## Where the data comes from (and how to find it again)
 

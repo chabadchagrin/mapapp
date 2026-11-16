@@ -39,7 +39,7 @@ PRECISION = 6  # decimal places in coordinates (~10 cm)
 # "Parcel Fabric" is updated daily; the Open_Data_Parcels layer stopped updating in March 2026.
 CUY_URL = "https://gis.cuyahogacounty.gov/server/rest/services/CCFO/Parcel_Fabric_Taxparcels/FeatureServer/0"
 CUY_CITIES = ["BENTLEYVILLE", "CHAGRIN FALLS", "CHAGRIN FALLS TOWNSHIP", "HUNTING VALLEY",
-              "MORELAND HILLS", "PEPPER PIKE"]
+              "MORELAND HILLS"]   # Pepper Pike removed Nov 16, 2026 at Shneur's request
 
 GEA_URL = "https://gcgis.geauga.oh.gov/parcel/rest/services/AzureParcels/Parcels/FeatureServer/0"
 # Geauga tax-district code -> area name used in the app
@@ -498,8 +498,12 @@ def main():
             sys.exit(f"ABORT: {county} returned {new_unique[county]} parcels, last time {old_unique[county]}.")
     new_j = collections.Counter((p["source_county"], p["jurisdiction"]) for p in {k: p for _, p in records for k in [(p["source_county"], p["parcel_id"])]}.values())
     old_j = collections.Counter((p["source_county"], p["jurisdiction"]) for p in prev.values())
+    configured = {("Cuyahoga", c) for c in CUY_CITIES} | {("Geauga", a) for a in GEA_DISTRICTS.values()}
     for key, n in sorted(old_j.items()):
         print(f"  {key[0]} / {key[1]}: {new_j[key]} (was {n})")
+        if key not in configured:
+            print("    (area no longer covered; dropped on purpose)")
+            continue
         if n >= 20 and new_j[key] < 0.9 * n:
             sys.exit(f"ABORT: {key} returned {new_j[key]} parcels, last time {n}.")
 
@@ -548,7 +552,8 @@ def main():
     stats["occ"] = dict(collections.Counter(p.get("occ") or "none" for _, p in records))
     log["refreshes"].append({"date": today, "previous": prev_date, "parcels": sum(new_unique.values()),
                              "owner_changes": len(changes)})
-    log["changes"] = changes + log.get("changes", [])
+    log["changes"] = [c for c in changes + log.get("changes", [])
+                      if (c.get("county"), c.get("jurisdiction")) in configured]
 
     # ---- tiles
     tiles = collections.defaultdict(list)
